@@ -1,15 +1,14 @@
-// At the top of EVChargingApp.js
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
-
-// Import components - make sure paths are correct
+import { useSocket } from "../context/SocketProvider";
 import Navbar from "./Navigation/Navbar";
 import TabSelector from "./Navigation/TabSelector";
 import SearchPanel from "./Search/SearchPanel";
 import RoutePlanner from "./Route/RoutePlanner";
 import ErrorDisplay from "./common/ErrorDisplay";
+
 const EVChargingApp = () => {
-  // State management
+  const socket = useSocket();
   const [searchRadius, setSearchRadius] = useState(10);
   const [activeTab, setActiveTab] = useState("search");
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -21,58 +20,45 @@ const EVChargingApp = () => {
   const [startLocation, setStartLocation] = useState(null);
   const [endLocation, setEndLocation] = useState(null);
 
-  // In EVChargingApp.js, add debug logging
   useEffect(() => {
-    const fetchStations = async () => {
-      if (!userLocation) {
-        console.log("No user location available");
-        return;
-      }
+    socket.on("connect", () => {
+      console.log("Connected to socket server");
+    });
 
-      setLoading(true);
-      setError(null);
-      try {
-        console.log("Fetching stations for location:", userLocation);
-        const data = await api.getStations(
-          searchRadius,
-          userLocation.lat,
-          userLocation.lng
-        );
-        console.log("Received stations:", data);
-        if (!Array.isArray(data)) {
-          console.error("Received invalid stations data:", data);
-          return;
-        }
-        setStations(data);
-      } catch (err) {
-        console.error("Failed to fetch stations:", err);
-        setError("Failed to fetch stations: " + err.message);
-      } finally {
-        setLoading(false);
-      }
+    socket.on("chargingStatus", (data) => {
+      setStations((prevStations) =>
+        prevStations.map((station) =>
+          station._id === data.stationId
+            ? { ...station, status: data.status }
+            : station
+        )
+      );
+    });
+
+    socket.on("error", (error) => {
+      setError("Socket error: " + error.message);
+    });
+
+    return () => {
+      socket.off("connect");
+      socket.off("chargingStatus");
+      socket.off("error");
     };
+  }, [socket]);
 
-    fetchStations();
-  }, [searchRadius, userLocation]);
-
-  // Set initial Melbourne location and test API connection
   useEffect(() => {
     const initializeApp = async () => {
-      // Set default location (Melbourne CBD)
       setUserLocation({
         lat: -37.8183,
         lng: 144.9558,
       });
 
-      // Test API connection
       try {
         const isConnected = await api.testConnection();
-        console.log("API Connection:", isConnected ? "Success" : "Failed");
         if (!isConnected) {
           setError("Unable to connect to the server");
         }
       } catch (err) {
-        console.error("API test failed:", err);
         setError("Server connection failed");
       }
     };
@@ -80,27 +66,19 @@ const EVChargingApp = () => {
     initializeApp();
   }, []);
 
-  // Fetch stations when radius or location changes
   useEffect(() => {
     const fetchStations = async () => {
-      if (!userLocation) {
-        console.log("No user location available");
-        return;
-      }
+      if (!userLocation) return;
 
       setLoading(true);
-      setError(null);
       try {
-        console.log("Fetching stations for location:", userLocation);
         const data = await api.getStations(
           searchRadius,
           userLocation.lat,
           userLocation.lng
         );
-        console.log("Received stations:", data);
         setStations(data);
       } catch (err) {
-        console.error("Failed to fetch stations:", err);
         setError("Failed to fetch stations: " + err.message);
       } finally {
         setLoading(false);
@@ -110,21 +88,35 @@ const EVChargingApp = () => {
     fetchStations();
   }, [searchRadius, userLocation]);
 
-  // Route calculation handler
+  const handleUserLocationChange = (latlng) => {
+    setUserLocation({
+      lat: latlng.lat,
+      lng: latlng.lng,
+    });
+  };
+
+  const handleStartLocationChange = (latlng) => {
+    setStartLocation({
+      lat: latlng.lat,
+      lng: latlng.lng,
+    });
+  };
+
+  const handleEndLocationChange = (latlng) => {
+    setEndLocation({
+      lat: latlng.lat,
+      lng: latlng.lng,
+    });
+  };
+
   const handleCalculateRoute = async () => {
     if (!startLocation || !endLocation) {
-      setError("Please select both start and end locations on the map");
+      setError("Please select both start and end locations");
       return;
     }
 
     setLoading(true);
-    setError(null);
     try {
-      console.log("Calculating route between:", {
-        start: startLocation,
-        end: endLocation,
-      });
-
       const routeData = await api.calculateRoute(
         {
           lat: startLocation.lat,
@@ -135,57 +127,22 @@ const EVChargingApp = () => {
           lng: endLocation.lng,
         }
       );
-
-      console.log("Route calculation response:", routeData);
       setRoutes(Array.isArray(routeData) ? routeData : [routeData]);
-      setError(null);
     } catch (err) {
-      console.error("Route calculation error:", err);
       setError(err.message || "Failed to calculate route");
     } finally {
       setLoading(false);
     }
   };
 
-  // Location change handlers
-  const handleUserLocationChange = (latlng) => {
-    console.log("User location changed:", latlng);
-    setUserLocation({
-      lat: latlng.lat,
-      lng: latlng.lng,
-    });
-  };
-
-  const handleStartLocationChange = (latlng) => {
-    console.log("Start location changed:", latlng);
-    setStartLocation({
-      lat: latlng.lat,
-      lng: latlng.lng,
-    });
-  };
-
-  const handleEndLocationChange = (latlng) => {
-    console.log("End location changed:", latlng);
-    setEndLocation({
-      lat: latlng.lat,
-      lng: latlng.lng,
-    });
-  };
-
   return (
     <div className='min-h-screen bg-gray-50'>
-      {/* Navigation */}
       <Navbar />
-
-      {/* Error Display */}
       <ErrorDisplay message={error} />
 
-      {/* Main Content */}
       <main className='container mx-auto p-4'>
-        {/* Tab Selection */}
         <TabSelector activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {/* Content Panels */}
         {activeTab === "search" ? (
           <SearchPanel
             userLocation={userLocation}
@@ -196,14 +153,13 @@ const EVChargingApp = () => {
             onRadiusChange={setSearchRadius}
           />
         ) : (
-          // In EVChargingApp.js, update the RoutePlanner render:
           <RoutePlanner
             startLocation={startLocation}
             endLocation={endLocation}
             routes={routes}
             loading={loading}
             selectedRoute={selectedRoute}
-            stations={stations} // Add this line
+            stations={stations}
             onStartLocationChange={handleStartLocationChange}
             onEndLocationChange={handleEndLocationChange}
             onCalculateRoute={handleCalculateRoute}
